@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:quotevault/core/providers/theme_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -37,6 +38,207 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     super.dispose();
   }
 
+  // Single _showSnackBar method with both functionalities
+  void _showSnackBar(String message, {bool isError = false}) {
+    if (!mounted) return;
+
+    final backgroundColor = isError
+        ? Colors.red.shade800
+        : Colors.green.shade800;
+    final icon = isError ? Icons.error_rounded : Icons.check_circle_rounded;
+    final iconColor = isError ? Colors.red.shade200 : Colors.green.shade200;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(icon, color: iconColor, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(message, style: const TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+        backgroundColor: backgroundColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  Future<void> _handleResetPassword(BuildContext context, WidgetRef ref) async {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    final supabase = ref.read(supabaseProvider);
+    final user = supabase.auth.currentUser;
+
+    if (user?.email == null) {
+      _showSnackBar(
+        'No email address found. Please make sure you have an email associated with your account.',
+        isError: true,
+      );
+      return;
+    }
+
+    final email = user!.email!;
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(
+              Icons.lock_reset_rounded,
+              color: colorScheme.primary,
+              size: 24,
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'Reset Password',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Send password reset link to:'),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: colorScheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                email,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Check your email inbox (and spam folder) for the reset link.',
+              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(foregroundColor: Colors.grey[600]),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colorScheme.primary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            child: const Text('Send Reset Link'),
+          ),
+        ],
+        actionsPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 16),
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    // Perform password reset
+    await _performPasswordReset(context, ref, email);
+  }
+
+  Future<void> _performPasswordReset(
+    BuildContext context,
+    WidgetRef ref,
+    String email,
+  ) async {
+    try {
+      // Show loading overlay
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      // Call the reset password function from auth provider
+      await ref.read(authControllerProvider.notifier).resetPassword(email);
+
+      // Close loading dialog
+      if (context.mounted) Navigator.pop(context);
+
+      // Show success snackbar
+      _showPasswordResetSuccessSnackbar(context, email);
+    } catch (e) {
+      // Close loading dialog if still open
+      if (context.mounted) Navigator.pop(context);
+
+      // Show error snackbar
+      _showSnackBar(
+        'Failed to send reset email: ${e.toString()}',
+        isError: true,
+      );
+    }
+  }
+
+  void _showPasswordResetSuccessSnackbar(BuildContext context, String email) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.check_circle_rounded,
+                  color: Colors.green.shade700,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Reset link sent!',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Check your mail: $email',
+              style: const TextStyle(fontSize: 12, color: Colors.white70),
+            ),
+          ],
+        ),
+        backgroundColor: Colors.green.shade800,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'OK',
+          textColor: Colors.white,
+          onPressed: () {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          },
+        ),
+        margin: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      ),
+    );
+  }
+
   Future<bool> _checkAvatarBucket() async {
     if (_bucketChecked) return true;
 
@@ -71,14 +273,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         });
       }
     } catch (e) {
-      _showSnackBar('Error picking image: $e');
+      _showSnackBar('Error picking image: $e', isError: true);
     }
   }
 
   Future<String?> _uploadAvatar(File imageFile) async {
     final bucketExists = await _checkAvatarBucket();
     if (!bucketExists) {
-      _showSnackBar('Please set up storage bucket first');
+      _showSnackBar('Please set up storage bucket first', isError: true);
       return null;
     }
 
@@ -117,28 +319,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return urlWithCacheBuster;
       } catch (uploadError) {
         debugPrint('❌ Upload error: $uploadError');
-        _showSnackBar('Upload failed. Check storage permissions.');
+        _showSnackBar(
+          'Upload failed. Check storage permissions.',
+          isError: true,
+        );
         return null;
       }
     } catch (e) {
       debugPrint('❌ Error: $e');
-      _showSnackBar('Error: ${e.toString()}');
+      _showSnackBar('Error: ${e.toString()}', isError: true);
       return null;
-    }
-  }
-
-  void _showSnackBar(String message) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          duration: const Duration(seconds: 4),
-        ),
-      );
     }
   }
 
@@ -165,9 +355,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             .select('avatar_url')
             .eq('id', user.id)
             .single()
-            .onError(
-              (error, stackTrace) => {'error': 'Error at avatar upload'},
-            );
+            .onError((error, stackTrace) => {'avatar_url': null});
         avatarUrl = profile['avatar_url'];
       }
 
@@ -187,7 +375,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       _showSnackBar('✅ Profile updated');
       setState(() => _isEditingName = false);
     } catch (e) {
-      _showSnackBar('❌ Error: ${e.toString()}');
+      _showSnackBar('❌ Error: ${e.toString()}', isError: true);
     } finally {
       if (mounted) {
         setState(() => _isUploading = false);
@@ -261,6 +449,96 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return '$url&t=${DateTime.now().millisecondsSinceEpoch}';
     }
     return '$url?t=${DateTime.now().millisecondsSinceEpoch}';
+  }
+
+  Future<void> _performLogout(BuildContext context, WidgetRef ref) async {
+    try {
+      // Show loading overlay
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      // Perform logout
+      await ref.read(authControllerProvider.notifier).logout();
+
+      // Close loading dialog
+      if (context.mounted) Navigator.pop(context);
+
+      // Show success message
+      _showSnackBar('Logged out successfully');
+
+      // Navigate to home or auth screen
+      if (context.mounted) {
+        context.go('/');
+      }
+    } catch (e) {
+      // Close loading dialog if still open
+      if (context.mounted) Navigator.pop(context);
+
+      // Show error message
+      _showSnackBar('Logout failed: ${e.toString()}', isError: true);
+    }
+  }
+
+  Future<void> _showLogoutConfirmationDialog(
+    BuildContext context,
+    WidgetRef ref,
+  ) async {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.logout_rounded, color: Colors.red, size: 24),
+            const SizedBox(width: 12),
+            const Text('Logout', style: TextStyle(fontWeight: FontWeight.w600)),
+          ],
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to logout?'),
+            SizedBox(height: 8),
+            Text(
+              'You will need to sign in again to access your quotes.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(foregroundColor: Colors.grey[600]),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+        actionsPadding: const EdgeInsets.only(left: 20, right: 20, bottom: 16),
+      ),
+    );
+
+    if (confirmed == true) {
+      await _performLogout(context, ref);
+    }
   }
 
   @override
@@ -352,6 +630,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         fontSize: 20,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 0.5,
+                        color: Colors.white,
                       ),
                     ),
                   ),
@@ -629,9 +908,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                 ),
               ),
-
-              // Theme Settings Section
-              // In your SettingsScreen build method, add this section:
 
               // Theme Settings Section
               SliverToBoxAdapter(
@@ -1049,16 +1325,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: ListTile(
-                          onTap: () async {
-                            if (user?.email == null) return;
-
-                            await ref
-                                .read(authControllerProvider.notifier)
-                                .resetPassword(user!.email!);
-
-                            if (!mounted) return;
-                            _showSnackBar('Password reset email sent');
-                          },
+                          onTap: () => _handleResetPassword(context, ref),
                           leading: Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
@@ -1097,38 +1364,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           borderRadius: BorderRadius.circular(16),
                         ),
                         child: ListTile(
-                          onTap: () async {
-                            final confirmed = await showDialog<bool>(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: const Text('Logout'),
-                                content: const Text(
-                                  'Are you sure you want to logout?',
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () =>
-                                        Navigator.pop(context, false),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () =>
-                                        Navigator.pop(context, true),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: Colors.red,
-                                    ),
-                                    child: const Text('Logout'),
-                                  ),
-                                ],
-                              ),
-                            );
-
-                            if (confirmed == true) {
-                              await ref
-                                  .read(authControllerProvider.notifier)
-                                  .logout();
-                            }
-                          },
+                          onTap: () =>
+                              _showLogoutConfirmationDialog(context, ref),
                           leading: Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
@@ -1217,901 +1454,3 @@ class _ImageOptionTile extends StatelessWidget {
     );
   }
 }
-
-/* 
-import 'dart:io';
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../auth/providers/auth_provider.dart';
-import '../providers/profile_provider.dart';
-import '../../../core/providers/supabase_provider.dart';
-
-class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key});
-
-  @override
-  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  final nameCtrl = TextEditingController();
-  final _picker = ImagePicker();
-  File? _selectedImage;
-  bool _isUploading = false;
-  bool _isEditingName = false;
-  late FocusNode _nameFocusNode;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameFocusNode = FocusNode();
-    // Initialize bucket when screen loads
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _ensureAvatarBucketExists();
-    });
-  }
-
-  @override
-  void dispose() {
-    nameCtrl.dispose();
-    _nameFocusNode.dispose();
-    super.dispose();
-  }
-
-  Future<bool> _ensureAvatarBucketExists() async {
-    try {
-      final supabase = ref.read(supabaseProvider);
-
-      // Try to list buckets to check if avatars exists
-      final buckets = await supabase.storage.listBuckets();
-      final avatarBucketExists = buckets.any(
-        (bucket) => bucket.id == 'avatars',
-      );
-
-      if (!avatarBucketExists) {
-        debugPrint('🔄 Creating avatars bucket...');
-        try {
-          // Create the bucket
-          await supabase.storage.createBucket(
-            'avatars',
-             const BucketOptions(
-              public: true,
-              fileSizeLimit: '5242880', // 5MB
-              allowedMimeTypes: ['image/*'],
-            ),
-          );
-          debugPrint('✅ Created avatars bucket');
-
-          // Try to create RLS policies via SQL
-          try {
-            await supabase.rpc('create_avatar_policies');
-            debugPrint('✅ Created RLS policies');
-          } catch (e) {
-            debugPrint(
-              '⚠️ Could not create policies via RPC, you need to create them manually',
-            );
-            debugPrint('⚠️ Error: $e');
-          }
-
-          return true;
-        } catch (createError) {
-          debugPrint('⚠️ Error creating bucket: $createError');
-          return true;
-        }
-      }
-      debugPrint('✅ Avatars bucket already exists');
-      return true;
-    } catch (e) {
-      debugPrint('❌ Error checking bucket: $e');
-      return false;
-    }
-  }
-
-  Future<void> _pickImage(ImageSource source) async {
-    try {
-      final pickedFile = await _picker.pickImage(
-        source: source,
-        imageQuality: 85,
-        maxWidth: 800,
-      );
-
-      if (pickedFile != null) {
-        setState(() {
-          _selectedImage = File(pickedFile.path);
-        });
-      }
-    } catch (e) {
-      _showSnackBar('Error picking image: $e');
-    }
-  }
-
-  Future<String?> _uploadAvatar(File imageFile) async {
-    try {
-      final supabase = ref.read(supabaseProvider);
-      final user = supabase.auth.currentUser;
-      if (user == null) return null;
-
-      // Ensure bucket exists before uploading
-      final bucketReady = await _ensureAvatarBucketExists();
-      if (!bucketReady) {
-        _showSnackBar('Failed to prepare storage');
-        return null;
-      }
-
-      // Create unique filename
-      final fileName =
-          'avatar_${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-
-      // Read file as bytes
-      final fileBytes = await imageFile.readAsBytes();
-
-      debugPrint('📤 Uploading avatar to bucket: avatars/$fileName');
-
-      try {
-        // Upload to Supabase Storage
-        await supabase.storage
-            .from('avatars')
-            .uploadBinary(
-              fileName,
-              fileBytes,
-              fileOptions: const FileOptions(
-                upsert: true,
-                contentType: 'image/jpeg',
-              ),
-            );
-
-        // Get public URL
-        final publicUrl = supabase.storage
-            .from('avatars')
-            .getPublicUrl(fileName);
-
-        // Add cache busting parameter
-        final urlWithCacheBuster =
-            '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
-
-        debugPrint('✅ Avatar uploaded successfully: $urlWithCacheBuster');
-
-        return urlWithCacheBuster;
-      } catch (uploadError) {
-        debugPrint('❌ Upload error: $uploadError');
-        // Try alternative upload method
-        try {
-          await supabase.storage.from('avatars').upload(fileName, imageFile);
-
-          final publicUrl = supabase.storage
-              .from('avatars')
-              .getPublicUrl(fileName);
-
-          final urlWithCacheBuster =
-              '$publicUrl?t=${DateTime.now().millisecondsSinceEpoch}';
-          debugPrint('✅ Avatar uploaded (alternative method): $urlWithCacheBuster');
-
-          return urlWithCacheBuster;
-        } catch (altError) {
-          debugPrint('❌ Alternative upload also failed: $altError');
-          rethrow;
-        }
-      }
-    } catch (e) {
-      debugPrint('❌ Error uploading image: $e');
-      _showSnackBar('Error uploading image: ${e.toString()}');
-      return null;
-    }
-  }
-
-  void _showSnackBar(String message) {
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
-  }
-
-  Future<void> _saveProfile() async {
-    setState(() => _isUploading = true);
-
-    try {
-      final supabase = ref.read(supabaseProvider);
-      final user = supabase.auth.currentUser;
-      if (user == null) return;
-
-      String? avatarUrl;
-
-      // Upload new image if selected
-      if (_selectedImage != null) {
-        final uploadedUrl = await _uploadAvatar(_selectedImage!);
-        if (uploadedUrl != null) {
-          avatarUrl = uploadedUrl;
-        } else {
-          // Get current avatar URL from profile if upload failed
-          final profile = await supabase
-              .from('profiles')
-              .select('avatar_url')
-              .eq('id', user.id)
-              .single()
-              .onError((error, stackTrace) => {'error': 'Error'});
-          avatarUrl = profile?['avatar_url'];
-        }
-      } else {
-        // Get current avatar URL from profile
-        final profile = await supabase
-            .from('profiles')
-            .select('avatar_url')
-            .eq('id', user.id)
-            .single()
-            .onError((error, stackTrace) => {'e': 'errors'});
-        avatarUrl = profile['avatar_url'];
-      }
-
-      // Update profile with new data
-      await supabase.from('profiles').upsert({
-        'id': user.id,
-        'name': nameCtrl.text.trim(),
-        'avatar_url': avatarUrl,
-        'updated_at': DateTime.now().toIso8601String(),
-      });
-
-      // Force refresh the profile provider immediately
-      ref.invalidate(profileProvider);
-
-      // Also refetch to ensure UI updates
-      await Future.delayed(const Duration(milliseconds: 500));
-      ref.invalidate(profileProvider);
-
-      if (_selectedImage != null) {
-        setState(() => _selectedImage = null);
-      }
-
-      _showSnackBar('✅ Profile updated successfully');
-      setState(() => _isEditingName = false);
-    } catch (e) {
-      _showSnackBar('❌ Error updating profile: ${e.toString()}');
-    } finally {
-      if (mounted) {
-        setState(() => _isUploading = false);
-      }
-    }
-  }
-
-  void _showImageSourceDialog() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Update Profile Picture',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 20),
-            _ImageOptionTile(
-              icon: Icons.camera_alt_rounded,
-              title: 'Take Photo',
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.camera);
-              },
-            ),
-            _ImageOptionTile(
-              icon: Icons.photo_library_rounded,
-              title: 'Choose from Gallery',
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.gallery);
-              },
-            ),
-            if (_selectedImage != null)
-              _ImageOptionTile(
-                icon: Icons.delete_rounded,
-                title: 'Remove Photo',
-                color: Colors.red,
-                onTap: () {
-                  Navigator.pop(context);
-                  setState(() => _selectedImage = null);
-                },
-              ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _getAvatarUrlWithCacheBuster(String? url) {
-    if (url == null || url.isEmpty) return '';
-    // Check if URL already has query parameters
-    if (url.contains('?')) {
-      return '$url&t=${DateTime.now().millisecondsSinceEpoch}';
-    }
-    return '$url?t=${DateTime.now().millisecondsSinceEpoch}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final profileAsync = ref.watch(profileProvider);
-    final supabase = ref.read(supabaseProvider);
-    final user = supabase.auth.currentUser;
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Scaffold(
-      backgroundColor: isDarkMode ? Colors.grey[900] : Colors.grey[50],
-      body: profileAsync.when(
-        loading: () => const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Loading profile...', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
-        error: (error, stack) => Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.error_outline_rounded,
-                size: 60,
-                color: Colors.red[400],
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Failed to load profile',
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.grey[700],
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 40),
-                child: Text(
-                  error.toString(),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                ),
-              ),
-              const SizedBox(height: 20),
-              OutlinedButton(
-                onPressed: () => ref.invalidate(profileProvider),
-                child: const Text('Retry'),
-              ),
-            ],
-          ),
-        ),
-        data: (profile) {
-          if (!mounted) return const SizedBox();
-
-          // Initialize controllers only once
-          if (nameCtrl.text.isEmpty) {
-            nameCtrl.text =
-                profile?['name'] ?? user?.userMetadata?['name'] ?? '';
-          }
-
-          // Get current avatar URL with cache buster
-          final currentAvatarUrl = profile?['avatar_url'];
-          final avatarUrlWithCacheBuster = _getAvatarUrlWithCacheBuster(
-            currentAvatarUrl,
-          );
-
-          return CustomScrollView(
-            slivers: [
-              SliverAppBar(
-                floating: true,
-                pinned: true,
-                snap: false,
-                expandedHeight: 180.0,
-                backgroundColor: colorScheme.primary,
-                foregroundColor: Colors.white,
-                flexibleSpace: FlexibleSpaceBar(
-                  title: AnimatedOpacity(
-                    opacity: _isEditingName ? 0 : 1,
-                    duration: const Duration(milliseconds: 200),
-                    child: const Text(
-                      'Profile Settings',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
-                  centerTitle: true,
-                  background: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          colorScheme.primary,
-                          colorScheme.primary.withOpacity(0.8),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                actions: [
-                  if (_isUploading)
-                    const Padding(
-                      padding: EdgeInsets.only(right: 16),
-                      child: Center(
-                        child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    )
-                  else if (_isEditingName || _selectedImage != null)
-                    IconButton(
-                      icon: const Icon(Icons.check_rounded),
-                      onPressed: _saveProfile,
-                      tooltip: 'Save Changes',
-                    ),
-                ],
-              ),
-
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: isDarkMode
-                              ? [Colors.grey[850]!, Colors.grey[900]!]
-                              : [Colors.white, Colors.grey[50]!],
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.05),
-                            blurRadius: 15,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          children: [
-                            // Profile Avatar
-                            GestureDetector(
-                              onTap: _showImageSourceDialog,
-                              child: Stack(
-                                children: [
-                                  Container(
-                                    width: 100,
-                                    height: 100,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          colorScheme.primary,
-                                          colorScheme.primary.withOpacity(0.7),
-                                        ],
-                                      ),
-                                    ),
-                                    child: ClipOval(
-                                      child: _selectedImage != null
-                                          ? Image.file(
-                                              _selectedImage!,
-                                              fit: BoxFit.cover,
-                                              width: 100,
-                                              height: 100,
-                                            )
-                                          : currentAvatarUrl != null &&
-                                                currentAvatarUrl.isNotEmpty
-                                          ? Image.network(
-                                              avatarUrlWithCacheBuster,
-                                              fit: BoxFit.cover,
-                                              width: 100,
-                                              height: 100,
-                                              loadingBuilder: (context, child, loadingProgress) {
-                                                if (loadingProgress == null)
-                                                  return child;
-                                                return Center(
-                                                  child: CircularProgressIndicator(
-                                                    value:
-                                                        loadingProgress
-                                                                .expectedTotalBytes !=
-                                                            null
-                                                        ? loadingProgress
-                                                                  .cumulativeBytesLoaded /
-                                                              loadingProgress
-                                                                  .expectedTotalBytes!
-                                                        : null,
-                                                  ),
-                                                );
-                                              },
-                                              errorBuilder:
-                                                  (context, error, stackTrace) {
-                                                    return Icon(
-                                                      Icons.person_rounded,
-                                                      size: 60,
-                                                      color: Colors.white
-                                                          .withOpacity(0.9),
-                                                    );
-                                                  },
-                                            )
-                                          : Icon(
-                                              Icons.person_rounded,
-                                              size: 60,
-                                              color: Colors.white.withOpacity(
-                                                0.9,
-                                              ),
-                                            ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    bottom: 0,
-                                    right: 0,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(8),
-                                      decoration: BoxDecoration(
-                                        color: colorScheme.primary,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: isDarkMode
-                                              ? Colors.grey[900]!
-                                              : Colors.grey[50]!,
-                                          width: 3,
-                                        ),
-                                      ),
-                                      child: const Icon(
-                                        Icons.camera_alt_rounded,
-                                        color: Colors.white,
-                                        size: 16,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-
-                            // Name Field
-                            if (_isEditingName)
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  TextField(
-                                    controller: nameCtrl,
-                                    focusNode: _nameFocusNode,
-                                    autofocus: true,
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w600,
-                                      color: isDarkMode
-                                          ? Colors.grey[200]
-                                          : Colors.grey[800],
-                                    ),
-                                    decoration: InputDecoration(
-                                      filled: true,
-                                      fillColor: isDarkMode
-                                          ? Colors.grey[800]
-                                          : Colors.grey[100],
-                                      border: OutlineInputBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                        borderSide: BorderSide.none,
-                                      ),
-                                      hintText: 'Enter your name',
-                                      suffixIcon: IconButton(
-                                        icon: const Icon(Icons.check_rounded),
-                                        onPressed: _saveProfile,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: OutlinedButton(
-                                          onPressed: () => setState(() {
-                                            _isEditingName = false;
-                                            nameCtrl.text =
-                                                profile?['name'] ??
-                                                user?.userMetadata?['name'] ??
-                                                '';
-                                          }),
-                                          style: OutlinedButton.styleFrom(
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                          ),
-                                          child: const Text('Cancel'),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              )
-                            else
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        nameCtrl.text.isEmpty
-                                            ? 'No Name Set'
-                                            : nameCtrl.text,
-                                        style: TextStyle(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.w700,
-                                          color: isDarkMode
-                                              ? Colors.grey[200]
-                                              : Colors.grey[800],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        user?.email ?? '',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.grey[600],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  IconButton(
-                                    icon: Icon(
-                                      Icons.edit_rounded,
-                                      color: colorScheme.primary,
-                                    ),
-                                    onPressed: () {
-                                      setState(() => _isEditingName = true);
-                                      WidgetsBinding.instance
-                                          .addPostFrameCallback((_) {
-                                            _nameFocusNode.requestFocus();
-                                          });
-                                    },
-                                  ),
-                                ],
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 12, left: 8),
-                        child: Text(
-                          'Account Settings',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                      ),
-
-                      Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: ListTile(
-                          onTap: () async {
-                            if (user?.email == null) return;
-
-                            await ref
-                                .read(authControllerProvider.notifier)
-                                .resetPassword(user!.email!);
-
-                            if (!mounted) return;
-                            _showSnackBar('Password reset email sent');
-                          },
-                          leading: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: colorScheme.primary.withOpacity(0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.lock_reset_rounded,
-                              color: colorScheme.primary,
-                            ),
-                          ),
-                          title: const Text(
-                            'Reset Password',
-                            style: TextStyle(fontWeight: FontWeight.w500),
-                          ),
-                          subtitle: const Text(
-                            'Receive a password reset link via email',
-                          ),
-                          trailing: Icon(
-                            Icons.chevron_right_rounded,
-                            color: Colors.grey[400],
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                        ),
-                      ),
-
-                      Card(
-                        margin: const EdgeInsets.only(bottom: 20),
-                        elevation: 0,
-                        color: Colors.red.withOpacity(0.05),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: ListTile(
-                          onTap: () async {
-                            final confirmed = await showDialog<bool>(
-                              context: context,
-                              builder: (context) => AlertDialog(
-                                title: const Text('Logout'),
-                                content: const Text(
-                                  'Are you sure you want to logout?',
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () =>
-                                        Navigator.pop(context, false),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () =>
-                                        Navigator.pop(context, true),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: Colors.red,
-                                    ),
-                                    child: const Text('Logout'),
-                                  ),
-                                ],
-                              ),
-                            );
-
-                            if (confirmed == true) {
-                              await ref
-                                  .read(authControllerProvider.notifier)
-                                  .logout();
-                            }
-                          },
-                          leading: Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.1),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.logout_rounded,
-                              color: Colors.red,
-                            ),
-                          ),
-                          title: const Text(
-                            'Logout',
-                            style: TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          subtitle: const Text(
-                            'Sign out of your account',
-                            style: TextStyle(color: Colors.red),
-                          ),
-                          trailing: Icon(
-                            Icons.chevron_right_rounded,
-                            color: Colors.red.withOpacity(0.7),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _ImageOptionTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final Color? color;
-  final VoidCallback onTap;
-
-  const _ImageOptionTile({
-    required this.icon,
-    required this.title,
-    this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
-    return ListTile(
-      leading: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: (color ?? Theme.of(context).colorScheme.primary).withOpacity(
-            0.1,
-          ),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          icon,
-          color: color ?? Theme.of(context).colorScheme.primary,
-        ),
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: color ?? (isDarkMode ? Colors.grey[200] : Colors.grey[800]),
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      trailing: Icon(Icons.chevron_right_rounded, color: Colors.grey[400]),
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-    );
-  }
-}
-// 
-
- */
-
- */

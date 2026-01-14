@@ -21,6 +21,7 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
   bool _showSearch = false;
   String _searchQuery = '';
   final _scrollController = ScrollController();
+  bool _isInitialLoad = true;
 
   @override
   void initState() {
@@ -29,6 +30,13 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
       if (_searchController.text != _searchQuery) {
         setState(() => _searchQuery = _searchController.text);
         ref.read(searchQueryProvider.notifier).state = _searchController.text;
+      }
+    });
+
+    // Simulate loading delay for initial load
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        setState(() => _isInitialLoad = false);
       }
     });
   }
@@ -66,6 +74,30 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
     final colorScheme = Theme.of(context).colorScheme;
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
+    // Show loader on initial load
+    if (_isInitialLoad && quotes.isEmpty) {
+      return Scaffold(
+        backgroundColor: isDarkMode ? Colors.grey[900] : Colors.grey[50],
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildLoadingIndicator(),
+              const SizedBox(height: 20),
+              Text(
+                'Loading quotes...',
+                style: TextStyle(
+                  fontSize: 16,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: isDarkMode ? Colors.grey[900] : Colors.grey[50],
       body: CustomScrollView(
@@ -86,6 +118,7 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    const SizedBox(height: 2),
                     Text(
                       'QuoteVault',
                       style: TextStyle(
@@ -181,7 +214,6 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
                             tooltip: 'Favorites',
                           ),
                           const SizedBox(width: 8),
-
                           IconButton(
                             icon: const Icon(Icons.settings_outlined),
                             onPressed: () => context.push('/settings'),
@@ -193,19 +225,21 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
               ),
             ],
             bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(54.0),
+              preferredSize: const Size.fromHeight(60.0),
               child: Container(
                 color: Colors.white.withOpacity(0.05),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 20,
-                    vertical: 12,
+                    vertical: 10,
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        '${stats.filteredCount} ${stats.filteredCount == 1 ? 'quote' : 'quotes'}',
+                        quotes.isNotEmpty
+                            ? '${stats.filteredCount} ${stats.filteredCount == 1 ? 'quote' : 'quotes'}'
+                            : 'No quotes found',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.white.withOpacity(0.9),
@@ -239,163 +273,184 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
             ),
           ),
 
-          // --- Category Chips Section ---
-          SliverToBoxAdapter(
-            child: Container(
-              color: isDarkMode ? Colors.grey[850] : Colors.white,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 16,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'Categories',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: isDarkMode
-                                ? Colors.grey[200]
-                                : Colors.grey[800],
+          // --- Category Chips Section --- (Only show if we have quotes)
+          if (quotes.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Container(
+                color: isDarkMode ? Colors.grey[850] : Colors.white,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Categories',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: isDarkMode
+                                  ? Colors.grey[200]
+                                  : Colors.grey[800],
+                            ),
                           ),
-                        ),
-                        Text(
-                          '${stats.totalCategories} categories',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.grey[600],
+                          Text(
+                            '${stats.totalCategories} categories',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: categories.map((category) {
-                          final isSelected =
-                              selectedCategory == category ||
-                              (category == 'All' && selectedCategory == null);
-                          final categoryCount = category == 'All'
-                              ? stats.totalQuotes
-                              : stats.categoryCounts[category] ?? 0;
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: categories.map((category) {
+                            final isSelected =
+                                selectedCategory == category ||
+                                (category == 'All' && selectedCategory == null);
+                            final categoryCount = category == 'All'
+                                ? stats.totalQuotes
+                                : stats.categoryCounts[category] ?? 0;
 
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8.0),
-                            child: FilterChip(
-                              label: Text('$category ($categoryCount)'),
-                              selected: isSelected,
-                              onSelected: (selected) {
-                                ref
-                                    .read(selectedCategoryProvider.notifier)
-                                    .state = category == 'All'
-                                    ? null
-                                    : category;
-                                _scrollToTop();
-                              },
-                              backgroundColor: isSelected
-                                  ? colorScheme.primary.withOpacity(0.1)
-                                  : Colors.transparent,
-                              selectedColor: colorScheme.primary.withOpacity(
-                                0.2,
-                              ),
-                              labelStyle: TextStyle(
-                                color: isSelected
-                                    ? colorScheme.primary
-                                    : Colors.grey[700],
-                                fontWeight: isSelected
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                              ),
-                              shape: StadiumBorder(
-                                side: BorderSide(
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 8.0),
+                              child: FilterChip(
+                                label: Text('$category ($categoryCount)'),
+                                selected: isSelected,
+                                onSelected: (selected) {
+                                  ref
+                                      .read(selectedCategoryProvider.notifier)
+                                      .state = category == 'All'
+                                      ? null
+                                      : category;
+                                  _scrollToTop();
+                                },
+                                backgroundColor: isSelected
+                                    ? colorScheme.primary.withOpacity(0.1)
+                                    : Colors.transparent,
+                                selectedColor: colorScheme.primary.withOpacity(
+                                  0.2,
+                                ),
+                                labelStyle: TextStyle(
                                   color: isSelected
                                       ? colorScheme.primary
-                                      : Colors.grey[300]!,
-                                  width: isSelected ? 1.5 : 1.0,
+                                      : Colors.grey[700],
+                                  fontWeight: isSelected
+                                      ? FontWeight.w600
+                                      : FontWeight.w400,
                                 ),
+                                shape: StadiumBorder(
+                                  side: BorderSide(
+                                    color: isSelected
+                                        ? colorScheme.primary
+                                        : Colors.grey[300]!,
+                                    width: isSelected ? 1.5 : 1.0,
+                                  ),
+                                ),
+                                showCheckmark: false,
                               ),
-                              showCheckmark: false,
-                            ),
-                          );
-                        }).toList(),
+                            );
+                          }).toList(),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
 
-          // --- Quotes List ---
-          SliverPadding(
-            padding: const EdgeInsets.only(top: 8.0),
-            sliver: _buildQuotesList(quotes, isDarkMode, colorScheme),
-          ),
-        ],
-      ),
-      // In your QuoteListScreen, add a debug button
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          FloatingActionButton.small(
-            onPressed: () {
-              // Debug: Print current quotes
-              final quotes = ref.read(filteredQuotesProvider);
-              debugPrint('Total quotes: ${quotes.length}');
-              for (var quote in quotes.take(3)) {
-                debugPrint(
-                  'Quote: ${quote.text} | Author: ${quote.author} | Category: ${quote.category}',
-                );
-              }
-            },
-            backgroundColor: Colors.orange,
-            child: const Icon(Icons.bug_report),
-          ),
-          const SizedBox(height: 16),
-          // ... existing FAB
+          // --- Quotes List or Empty State ---
+          if (quotes.isEmpty)
+            SliverFillRemaining(
+              child: _buildEmptyState(
+                colorScheme,
+                isDarkMode,
+                selectedCategory, // Pass selectedCategory here
+                _searchQuery, // Pass searchQuery here
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.only(top: 8.0),
+              sliver: _buildQuotesList(quotes, isDarkMode, colorScheme),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildQuotesList(
-    List<Quote> quotes,
-    bool isDarkMode,
-    ColorScheme colorScheme,
-  ) {
-    if (quotes.isEmpty) {
-      return SliverFillRemaining(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                Icons.format_quote_rounded,
-                size: 80,
-                color: Colors.grey[400],
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'No quotes found',
-                style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.grey[600],
-                  fontWeight: FontWeight.w500,
+  Widget _buildLoadingIndicator() {
+    return SizedBox(
+      width: 60,
+      height: 60,
+      child: Stack(
+        children: [
+          Center(
+            child: SizedBox(
+              width: 40,
+              height: 40,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  Theme.of(context).colorScheme.primary,
                 ),
               ),
-              const SizedBox(height: 10),
-              Text(
-                'Try adjusting your filters',
-                style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+            ),
+          ),
+          Center(
+            child: Icon(
+              Icons.format_quote_rounded,
+              size: 24,
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.8),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(
+    ColorScheme colorScheme,
+    bool isDarkMode,
+    String? selectedCategory,
+    String searchQuery,
+  ) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.format_quote_rounded, size: 80, color: Colors.grey[400]),
+            const SizedBox(height: 20),
+            Text(
+              'No quotes found',
+              style: TextStyle(
+                fontSize: 20,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
               ),
-              const SizedBox(height: 30),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              searchQuery.isNotEmpty
+                  ? 'Try a different search term'
+                  : selectedCategory != null
+                  ? 'No quotes in this category'
+                  : 'Add your first quote to get started',
+              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 30),
+            if (searchQuery.isNotEmpty || selectedCategory != null)
               FilledButton(
                 onPressed: _clearFilters,
                 style: FilledButton.styleFrom(
@@ -408,13 +463,36 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
                   padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                   child: Text('Clear All Filters'),
                 ),
+              )
+            else
+              FilledButton.icon(
+                onPressed: () {
+                  // Navigate to add quote screen
+                  // context.push('/add-quote');
+                },
+                style: FilledButton.styleFrom(
+                  backgroundColor: colorScheme.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: const Icon(Icons.add_rounded),
+                label: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                  child: Text('Add Your First Quote'),
+                ),
               ),
-            ],
-          ),
+          ],
         ),
-      );
-    }
+      ),
+    );
+  }
 
+  Widget _buildQuotesList(
+    List<Quote> quotes,
+    bool isDarkMode,
+    ColorScheme colorScheme,
+  ) {
     return SliverList(
       delegate: SliverChildBuilderDelegate((context, index) {
         final quote = quotes[index];

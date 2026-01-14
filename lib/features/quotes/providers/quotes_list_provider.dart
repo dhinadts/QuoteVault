@@ -1,8 +1,11 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:quotevault/features/quotes/data/quote_model.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 // Providers for quotes management
 // ================================
@@ -187,141 +190,336 @@ class QuoteStats {
 }
 
 // Notifier class for managing quotes
+// import 'package:supabase_flutter/supabase_flutter.dart';
+
+// import 'package:supabase_flutter/supabase_flutter.dart';
+
 class QuoteListNotifier extends StateNotifier<List<Quote>> {
-  // For simplicity, we'll use a simple list instead of Hive
-  // Replace with your actual storage solution (SharedPreferences, SQLite, etc.)
-  final List<Quote> _initialQuotes = [];
+  final SupabaseClient _supabase;
 
-  QuoteListNotifier() : super([]) {
-    _loadInitialQuotes();
+  QuoteListNotifier() : _supabase = Supabase.instance.client, super([]) {
+    _loadQuotesFromSupabase();
   }
 
-  Future<void> _loadInitialQuotes() async {
-    // Load initial quotes from your storage
-    // This could be from SharedPreferences, SQLite, or an API
-    // For now, we'll use an empty list
-    state = _initialQuotes;
-  }
+  Future<void> _loadQuotesFromSupabase() async {
+    try {
+      debugPrint('Loading quotes from Supabase...');
 
-  // Add a quote
-  Future<void> addQuote(Quote quote) async {
-    final newQuote = quote.copyWith(
-      id: quote.id.isEmpty
-          ? DateTime.now().microsecondsSinceEpoch.toString()
-          : quote.id,
-      createdAt: DateTime.now(),
-    );
+      final response = await _supabase
+          .from('quotes')
+          .select()
+          .order('created_at', ascending: false);
 
-    // Save to your storage here
-    state = [...state, newQuote];
+      debugPrint('Supabase response count: ${response.length}');
 
-    debugPrint('Quote added: ${newQuote.text}');
-  }
+      if (response != null && response is List) {
+        final quotes = response
+            .map((json) => Quote.fromSupabaseJson(json))
+            .where((quote) => quote.id.isNotEmpty)
+            .toList();
 
-  // Update a quote
-  Future<void> updateQuote(Quote updatedQuote) async {
-    final index = state.indexWhere((q) => q.id == updatedQuote.id);
-    if (index != -1) {
-      // Update in your storage here
-      final newState = List<Quote>.from(state);
-      newState[index] = updatedQuote;
-      state = newState;
+        debugPrint('Successfully loaded ${quotes.length} quotes');
+        state = quotes;
 
-      debugPrint('Quote updated: ${updatedQuote.text}');
+        // Debug print first few quotes
+        if (quotes.isNotEmpty) {
+          for (var i = 0; i < min(3, quotes.length); i++) {
+            debugPrint(
+              'Quote $i: ${quotes[i].text} | Favorite: ${quotes[i].isFavorite}',
+            );
+          }
+        }
+      } else {
+        debugPrint('No quotes found in Supabase');
+        state = [];
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Error loading quotes from Supabase: $e');
+      debugPrint('Stack trace: $stackTrace');
+      state = [];
     }
   }
 
-  // Delete a quote
-  Future<void> deleteQuote(String quoteId) async {
-    // Delete from your storage here
-    state = state.where((quote) => quote.id != quoteId).toList();
+  // Add a quote to Supabase
+  Future<void> addQuote(Quote quote) async {
+    try {
+      final newQuote = quote.copyWith(
+        id: quote.id.isEmpty
+            ? DateTime.now().microsecondsSinceEpoch.toString()
+            : quote.id,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        userId: _supabase.auth.currentUser?.id,
+      );
 
-    debugPrint('Quote deleted: $quoteId');
+      await _supabase.from('quotes').insert(newQuote.toSupabaseJson());
+
+      await _loadQuotesFromSupabase();
+      debugPrint('Quote added: ${newQuote.text}');
+    } catch (e) {
+      debugPrint('Error adding quote: $e');
+      rethrow;
+    }
   }
+
+  // Update a quote in Supabase
+  Future<void> updateQuote(Quote updatedQuote) async {
+    try {
+      final quoteToUpdate = updatedQuote.copyWith(updatedAt: DateTime.now());
+
+      await _supabase
+          .from('quotes')
+          .update(quoteToUpdate.toSupabaseJson())
+          .eq('id', quoteToUpdate.id);
+
+      await _loadQuotesFromSupabase();
+      debugPrint('Quote updated: ${quoteToUpdate.text}');
+    } catch (e) {
+      debugPrint('Error updating quote: $e');
+      rethrow;
+    }
+  }
+
+  // Delete a quote from Supabase
+  Future<void> deleteQuote(String quoteId) async {
+    try {
+      await _supabase.from('quotes').delete().eq('id', quoteId);
+
+      await _loadQuotesFromSupabase();
+      debugPrint('Quote deleted: $quoteId');
+    } catch (e) {
+      debugPrint('Error deleting quote: $e');
+      rethrow;
+    }
+  }
+
+  // FAVORITES MANAGEMENT
+  // ====================
 
   // Toggle favorite status
   Future<void> toggleFavorite(String quoteId) async {
-    final index = state.indexWhere((q) => q.id == quoteId);
-    if (index != -1) {
-      final quote = state[index];
+    try {
+      final quote = getQuoteById(quoteId);
+      if (quote == null) return;
+
+      final newFavoriteStatus = !quote.isFavorite;
+      final now = DateTime.now();
+
+      // Update only favorite-related fields
+      await _supabase
+          .from('quotes')
+          .update({
+            'is_favorite': newFavoriteStatus,
+            'favorite_date': newFavoriteStatus
+                ? now.toUtc().toIso8601String()
+                : null,
+            'updated_at': now.toUtc().toIso8601String(),
+          })
+          .eq('id', quoteId);
+
+      // Update local state
       final updatedQuote = quote.copyWith(
-        isFavorite: !quote.isFavorite,
-        favoriteDate: !quote.isFavorite ? DateTime.now() : null,
+        isFavorite: newFavoriteStatus,
+        favoriteDate: newFavoriteStatus ? now : null,
+        updatedAt: now,
       );
 
-      // Update in your storage here
-      final newState = List<Quote>.from(state);
-      newState[index] = updatedQuote;
+      final newState = state
+          .map((q) => q.id == quoteId ? updatedQuote : q)
+          .toList();
       state = newState;
 
       debugPrint(
-        updatedQuote.isFavorite
+        newFavoriteStatus
             ? 'Added to favorites: ${quote.text}'
             : 'Removed from favorites: ${quote.text}',
       );
+    } catch (e) {
+      debugPrint('Error toggling favorite: $e');
+      rethrow;
     }
   }
 
   // Add to favorites
   Future<void> addToFavorites(String quoteId) async {
-    final index = state.indexWhere((q) => q.id == quoteId);
-    if (index != -1 && !state[index].isFavorite) {
-      final quote = state[index];
+    try {
+      final quote = getQuoteById(quoteId);
+      if (quote == null || quote.isFavorite) return;
+
+      final now = DateTime.now();
+
+      await _supabase
+          .from('quotes')
+          .update({
+            'is_favorite': true,
+            'favorite_date': now.toUtc().toIso8601String(),
+            'updated_at': now.toUtc().toIso8601String(),
+          })
+          .eq('id', quoteId);
+
       final updatedQuote = quote.copyWith(
         isFavorite: true,
-        favoriteDate: DateTime.now(),
+        favoriteDate: now,
+        updatedAt: now,
       );
 
-      final newState = List<Quote>.from(state);
-      newState[index] = updatedQuote;
+      final newState = state
+          .map((q) => q.id == quoteId ? updatedQuote : q)
+          .toList();
       state = newState;
+
+      debugPrint('Added to favorites: ${quote.text}');
+    } catch (e) {
+      debugPrint('Error adding to favorites: $e');
+      rethrow;
     }
   }
 
   // Remove from favorites
   Future<void> removeFromFavorites(String quoteId) async {
-    final index = state.indexWhere((q) => q.id == quoteId);
-    if (index != -1 && state[index].isFavorite) {
-      final quote = state[index];
+    try {
+      final quote = getQuoteById(quoteId);
+      if (quote == null || !quote.isFavorite) return;
+
+      final now = DateTime.now();
+
+      await _supabase
+          .from('quotes')
+          .update({
+            'is_favorite': false,
+            'favorite_date': null,
+            'updated_at': now.toUtc().toIso8601String(),
+          })
+          .eq('id', quoteId);
+
       final updatedQuote = quote.copyWith(
         isFavorite: false,
         favoriteDate: null,
+        updatedAt: now,
       );
 
-      final newState = List<Quote>.from(state);
-      newState[index] = updatedQuote;
+      final newState = state
+          .map((q) => q.id == quoteId ? updatedQuote : q)
+          .toList();
       state = newState;
+
+      debugPrint('Removed from favorites: ${quote.text}');
+    } catch (e) {
+      debugPrint('Error removing from favorites: $e');
+      rethrow;
     }
-  }
-
-  // Get favorite quotes sorted by favorite date
-  List<Quote> getFavoritesSorted() {
-    return state.where((quote) => quote.isFavorite).toList()..sort((a, b) {
-      if (a.favoriteDate == null || b.favoriteDate == null) return 0;
-      return b.favoriteDate!.compareTo(a.favoriteDate!);
-    });
-  }
-
-  // Check if a quote is favorite
-  bool isFavorite(String quoteId) {
-    final quote = state.firstWhere(
-      (q) => q.id == quoteId,
-      orElse: () => Quote.empty(),
-    );
-    return quote.isFavorite;
   }
 
   // Clear all favorites
   Future<void> clearAllFavorites() async {
-    final newState = state.map((quote) {
-      if (quote.isFavorite) {
-        return quote.copyWith(isFavorite: false, favoriteDate: null);
-      }
-      return quote;
-    }).toList();
+    try {
+      final favoriteQuotes = state.where((q) => q.isFavorite).toList();
+      if (favoriteQuotes.isEmpty) return;
 
-    state = newState;
-    debugPrint('All favorites cleared');
+      final now = DateTime.now();
+
+      // Update all favorite quotes in Supabase
+      for (final quote in favoriteQuotes) {
+        await _supabase
+            .from('quotes')
+            .update({
+              'is_favorite': false,
+              'favorite_date': null,
+              'updated_at': now.toUtc().toIso8601String(),
+            })
+            .eq('id', quote.id);
+      }
+
+      // Update local state
+      final newState = state.map((quote) {
+        if (quote.isFavorite) {
+          return quote.copyWith(
+            isFavorite: false,
+            favoriteDate: null,
+            updatedAt: now,
+          );
+        }
+        return quote;
+      }).toList();
+
+      state = newState;
+      debugPrint('Cleared all favorites (${favoriteQuotes.length} quotes)');
+    } catch (e) {
+      debugPrint('Error clearing all favorites: $e');
+      rethrow;
+    }
+  }
+
+  // Get favorite quotes
+  List<Quote> getFavoritesSorted({bool newestFirst = true}) {
+    return state.where((q) => q.isFavorite).toList()..sort((a, b) {
+      final aDate = a.favoriteDate ?? DateTime(1970);
+      final bDate = b.favoriteDate ?? DateTime(1970);
+      return newestFirst ? bDate.compareTo(aDate) : aDate.compareTo(bDate);
+    });
+  }
+
+  // Check if quote is favorite
+  bool isFavorite(String quoteId) {
+    return state.any((q) => q.id == quoteId && q.isFavorite);
+  }
+
+  // Get favorites count
+  int get favoritesCount => state.where((q) => q.isFavorite).length;
+
+  // Get quote by ID
+  Quote? getQuoteById(String quoteId) {
+    return state.firstWhereOrNull((q) => q.id == quoteId);
+  }
+
+  // Refresh quotes from Supabase
+  Future<void> refreshQuotes() async {
+    await _loadQuotesFromSupabase();
+  }
+
+  // Import multiple quotes
+  Future<void> importQuotes(List<Quote> quotes) async {
+    try {
+      for (final quote in quotes) {
+        final quoteToInsert = quote.copyWith(
+          userId: _supabase.auth.currentUser?.id,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+
+        await _supabase.from('quotes').insert(quoteToInsert.toSupabaseJson());
+      }
+
+      await _loadQuotesFromSupabase();
+      debugPrint('Imported ${quotes.length} quotes');
+    } catch (e) {
+      debugPrint('Error importing quotes: $e');
+      rethrow;
+    }
+  }
+
+  // Clear all quotes
+  Future<void> clearAllQuotes() async {
+    try {
+      final userId = _supabase.auth.currentUser?.id;
+
+      if (userId != null) {
+        // Delete only user's quotes
+        await _supabase.from('quotes').delete().eq('user_id', userId);
+      } else {
+        // Delete all quotes (use with caution)
+        await _supabase
+            .from('quotes')
+            .delete()
+            .neq('id', ''); // Delete all rows
+      }
+
+      state = [];
+      debugPrint('All quotes cleared');
+    } catch (e) {
+      debugPrint('Error clearing quotes: $e');
+      rethrow;
+    }
   }
 
   // Search quotes
@@ -332,90 +530,21 @@ class QuoteListNotifier extends StateNotifier<List<Quote>> {
     return state.where((quote) {
       return quote.text.toLowerCase().contains(lowercaseQuery) ||
           quote.author.toLowerCase().contains(lowercaseQuery) ||
-          (quote.category?.toLowerCase().contains(lowercaseQuery) ?? false) ||
-          quote.tags.any((tag) => tag.toLowerCase().contains(lowercaseQuery)) ||
-          (quote.notes?.toLowerCase().contains(lowercaseQuery) ?? false) ||
-          (quote.source?.toLowerCase().contains(lowercaseQuery) ?? false);
+          (quote.category?.toLowerCase().contains(lowercaseQuery) ?? false);
     }).toList();
-  }
-
-  // Get quotes by category
-  List<Quote> getQuotesByCategory(String category) {
-    if (category == 'Uncategorized') {
-      return state
-          .where((quote) => quote.category == null || quote.category!.isEmpty)
-          .toList();
-    }
-    return state
-        .where(
-          (quote) => quote.category?.toLowerCase() == category.toLowerCase(),
-        )
-        .toList();
-  }
-
-  // Get quotes by tag
-  List<Quote> getQuotesByTag(String tag) {
-    return state.where((quote) => quote.tags.contains(tag)).toList();
-  }
-
-  // Import quotes from JSON
-  Future<void> importQuotes(List<Map<String, dynamic>> jsonList) async {
-    final importedQuotes = jsonList
-        .map((json) => Quote.fromJson(json))
-        .toList();
-    state = [...state, ...importedQuotes];
-    debugPrint('Imported ${importedQuotes.length} quotes');
-  }
-
-  // Export quotes to JSON
-  List<Map<String, dynamic>> exportQuotes() {
-    return state.map((quote) => quote.toJson()).toList();
-  }
-
-  // Clear all quotes
-  Future<void> clearAllQuotes() async {
-    state = [];
-    debugPrint('All quotes cleared');
-  }
-
-  // Get quote by ID
-  Quote? getQuoteById(String quoteId) {
-    try {
-      return state.firstWhere((q) => q.id == quoteId);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  // Get random quote
-  Quote? getRandomQuote() {
-    if (state.isEmpty) return null;
-    final random = DateTime.now().microsecondsSinceEpoch % state.length;
-    return state[random];
-  }
-
-  // Get quotes count by author
-  Map<String, int> getAuthorStats() {
-    final authorCounts = <String, int>{};
-    for (final quote in state) {
-      authorCounts[quote.author] = (authorCounts[quote.author] ?? 0) + 1;
-    }
-    return authorCounts;
-  }
-
-  // Get most common tags
-  Map<String, int> getTagStats() {
-    final tagCounts = <String, int>{};
-    for (final quote in state) {
-      for (final tag in quote.tags) {
-        tagCounts[tag] = (tagCounts[tag] ?? 0) + 1;
-      }
-    }
-    return tagCounts;
   }
 }
 
-// Extension methods for easier quote manipulation
+// Helper extension for List
+extension ListExtension<T> on List<T> {
+  T? firstWhereOrNull(bool Function(T) test) {
+    for (final element in this) {
+      if (test(element)) return element;
+    }
+    return null;
+  }
+} // Extension methods for easier quote manipulation
+
 extension QuoteListExtension on List<Quote> {
   // Sort quotes by date (newest first)
   List<Quote> sortByDate({bool ascending = false}) {
