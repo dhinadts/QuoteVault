@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -590,4 +591,14 @@ extension QuoteListExtension on List<Quote> {
     }
     return allTags.toList()..sort();
   }
+}
+
+class QuoteRefreshBus {
+  QuoteRefreshBus._();
+  static final instance = QuoteRefreshBus._();
+
+  final _controller = StreamController<void>.broadcast();
+  Stream<void> get stream => _controller.stream;
+
+  void trigger() => _controller.add(null);
 }

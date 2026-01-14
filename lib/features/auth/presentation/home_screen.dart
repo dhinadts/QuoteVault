@@ -1,10 +1,11 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:quotevault/core/providers/theme_provider.dart';
 import 'package:quotevault/features/quotes/data/quote_model.dart';
 import 'package:quotevault/features/quotes/providers/quotes_list_provider.dart';
-import 'package:quotevault/routes/app_router.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -13,16 +14,16 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
-  Quote? _randomQuote;
+class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isRefreshing = false;
+  Quote? _currentQuote;
+
   final List<String> _greetings = [
-    'Inspire your day',
-    'Wisdom awaits',
-    'Find your quote',
-    'Daily inspiration',
-    'Mindful moments',
-    'Thought for today',
+    'Daily Inspiration',
+    'Wisdom Awaits',
+    'Mindful Moment',
+    'Thought for Today',
+    'Inspire Your Day',
   ];
   late String _currentGreeting;
 
@@ -31,7 +32,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
     super.initState();
     _currentGreeting = _greetings[DateTime.now().second % _greetings.length];
 
-    // Load initial quote after first frame so provider is ready
+    // Load initial quote after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final quotes = ref.read(quoteListProvider);
       if (quotes.isNotEmpty) {
@@ -41,14 +42,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
   }
 
   void _setRandomQuote(List<Quote> quotes) {
-    final randomIndex = DateTime.now().millisecondsSinceEpoch % quotes.length;
+    if (quotes.isEmpty) return;
+
+    final random = Random();
+    final randomIndex = random.nextInt(quotes.length);
     setState(() {
-      _randomQuote = quotes[randomIndex];
+      _currentQuote = quotes[randomIndex];
       _isRefreshing = false;
     });
+
+    debugPrint(
+      '📝 New quote set: "${_currentQuote!.text.substring(0, min(30, _currentQuote!.text.length))}..."',
+    );
   }
 
-  Future<void> _loadRandomQuote() async {
+  Future<void> _loadNewQuote() async {
+    debugPrint('🔄 Loading new quote...');
     setState(() => _isRefreshing = true);
     await Future.delayed(const Duration(milliseconds: 300));
     final quotes = ref.read(quoteListProvider);
@@ -59,43 +68,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
     }
   }
 
-  void _changeGreeting() {
-    final currentIndex = _greetings.indexOf(_currentGreeting);
-    final nextIndex = (currentIndex + 1) % _greetings.length;
-    setState(() => _currentGreeting = _greetings[nextIndex]);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-
-    final route = ModalRoute.of(context);
-    if (route is PageRoute) {
-      routeObserver.subscribe(this, route);
-    }
-  }
-
-  @override
-  void didPopNext() {
-    // Called when returning to this screen
-    _loadRandomQuote();
-  }
-
-  @override
-  void dispose() {
-    routeObserver.unsubscribe(this);
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
-    final ref = this.ref; // Get the ref from ConsumerState
-
+    final mediaQuery = MediaQuery.of(context);
+    final isSmallScreen = mediaQuery.size.width < 600;
     final colorScheme = Theme.of(context).colorScheme;
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final quotes = ref.watch(quoteListProvider);
-    // Always try to load a random quote when quotes are available
-    if (quotes.isNotEmpty && _randomQuote == null && !_isRefreshing) {
+
+    // Initialize random quote if not set
+    if (quotes.isNotEmpty && _currentQuote == null && !_isRefreshing) {
       Future.microtask(() => _setRandomQuote(quotes));
     }
 
@@ -106,7 +88,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
           SliverAppBar(
             floating: true,
             pinned: true,
-            expandedHeight: 160.0,
+            expandedHeight: isSmallScreen ? 140.0 : 180.0,
             backgroundColor: colorScheme.primary,
             foregroundColor: Colors.white,
             flexibleSpace: FlexibleSpaceBar(
@@ -116,7 +98,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
                   Text(
                     'QuoteVault',
                     style: TextStyle(
-                      fontSize: 22,
+                      fontSize: isSmallScreen ? 20 : 24,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 0.8,
                       color: Colors.white,
@@ -133,7 +115,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
                   Text(
                     _currentGreeting,
                     style: TextStyle(
-                      fontSize: 14,
+                      fontSize: isSmallScreen ? 12 : 14,
                       fontWeight: FontWeight.w500,
                       color: Colors.white.withOpacity(0.9),
                     ),
@@ -160,16 +142,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
                       right: 20,
                       child: Icon(
                         Icons.format_quote_rounded,
-                        size: 60,
-                        color: Colors.white.withOpacity(0.1),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 20,
-                      left: 20,
-                      child: Icon(
-                        Icons.format_quote_rounded,
-                        size: 40,
+                        size: isSmallScreen ? 50 : 60,
                         color: Colors.white.withOpacity(0.1),
                       ),
                     ),
@@ -179,59 +152,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
             ),
             actions: [
               IconButton(
-                icon: const Icon(Icons.collections_bookmark_rounded),
+                icon: Icon(
+                  Icons.collections_bookmark_rounded,
+                  size: isSmallScreen ? 20 : 24,
+                ),
                 onPressed: () => context.push('/quotes'),
                 tooltip: 'All Quotes',
               ),
               IconButton(
-                icon: const Icon(Icons.favorite_border_rounded),
-                onPressed: () => context.push('/favorites'),
-                tooltip: 'Favorites',
+                icon: Icon(
+                  Icons.settings_rounded,
+                  size: isSmallScreen ? 20 : 24,
+                ),
+                onPressed: () => context.push('/settings'),
+                tooltip: 'Settings',
               ),
-              const SizedBox(width: 8),
             ],
           ),
-
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (quotes.isNotEmpty)
-                    _buildStatsCards(context, quotes, colorScheme, isDarkMode),
-
-                  const SizedBox(height: 40),
-
-                  if (_randomQuote != null)
-                    _buildQuoteCard(
-                      context,
-                      _randomQuote!,
-                      colorScheme,
-                      isDarkMode,
-                    )
-                  else if (quotes.isEmpty)
-                    _buildEmptyState(context, colorScheme, isDarkMode)
-                  else
-                    _buildLoadingQuoteCard(isDarkMode),
-
-                  const SizedBox(height: 40),
-
-                  _buildActionButtons(context, ref, colorScheme),
-
-                  const SizedBox(height: 20),
-
-                  Text(
-                    'Tap refresh for new inspiration',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey[600],
-                      fontStyle: FontStyle.italic,
-                    ),
+          SliverPadding(
+            padding: EdgeInsets.symmetric(
+              horizontal: isSmallScreen ? 12 : 20,
+              vertical: isSmallScreen ? 16 : 20,
+            ),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                // Stats Cards
+                if (quotes.isNotEmpty)
+                  _buildStatsCards(
+                    context,
+                    quotes,
+                    colorScheme,
+                    isDarkMode,
+                    isSmallScreen,
                   ),
-                ],
-              ),
+                SizedBox(height: isSmallScreen ? 20 : 40),
+                // Quote Card Section
+                _buildQuoteCardSection(
+                  context,
+                  _currentQuote,
+                  colorScheme,
+                  isDarkMode,
+                  isSmallScreen,
+                ),
+                SizedBox(height: isSmallScreen ? 20 : 40),
+                // All Quotes Button
+                _buildAllQuotesButton(
+                  context,
+                  colorScheme,
+                  isSmallScreen,
+                ),
+              ]),
             ),
           ),
         ],
@@ -239,19 +209,315 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
     );
   }
 
-  // Keep your helper methods (_buildStatsCards, _buildStatCard, _buildQuoteCard,
-  // _buildEmptyState, _buildLoadingQuoteCard, _buildActionButtons, _showQuoteDetails)
-  // exactly as you already have them.
+  Widget _buildAllQuotesButton(
+    BuildContext context,
+    ColorScheme colorScheme,
+    bool isSmallScreen,
+  ) {
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () => context.push('/quotes'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colorScheme.secondary,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 16 : 20),
+            ),
+            icon: Icon(
+              Icons.library_books_rounded,
+              size: isSmallScreen ? 20 : 24,
+            ),
+            label: Text(
+              'Browse All Quotes',
+              style: TextStyle(
+                fontSize: isSmallScreen ? 16 : 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(height: isSmallScreen ? 8 : 12),
+        Text(
+          'View and manage your entire collection of quotes',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: isSmallScreen ? 12 : 14,
+            color: Colors.grey[600],
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ],
+    );
+  }
 
-  // --- keep your _buildStatsCards, _buildStatCard, _buildQuoteCard,
-  // _buildEmptyState, _buildLoadingQuoteCard, _buildActionButtons,
-  // and _showQuoteDetails methods exactly as you had them ---
+  Widget _buildQuoteCardSection(
+    BuildContext context,
+    Quote? currentQuote,
+    ColorScheme colorScheme,
+    bool isDarkMode,
+    bool isSmallScreen,
+  ) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              'Daily Quote',
+              style: TextStyle(
+                fontSize: isSmallScreen ? 18 : 20,
+                fontWeight: FontWeight.w700,
+                color: colorScheme.primary,
+              ),
+            ),
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: isSmallScreen ? 10 : 12,
+                vertical: isSmallScreen ? 4 : 6,
+              ),
+              decoration: BoxDecoration(
+                color: colorScheme.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                'Random',
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 10 : 12,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.primary,
+                ),
+              ),
+            ),
+          ],
+        ),
+        SizedBox(height: isSmallScreen ? 12 : 16),
+        if (currentQuote != null)
+          _buildQuoteCard(
+            context,
+            currentQuote,
+            colorScheme,
+            isDarkMode,
+            isSmallScreen,
+          )
+        else
+          _buildLoadingQuoteCard(isDarkMode, isSmallScreen),
+        SizedBox(height: isSmallScreen ? 12 : 16),
+        // Refresh Button
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _isRefreshing ? null : _loadNewQuote,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: colorScheme.primary.withOpacity(0.1),
+              foregroundColor: colorScheme.primary,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 12 : 16),
+            ),
+            icon: _isRefreshing
+                ? SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: colorScheme.primary,
+                    ),
+                  )
+                : Icon(Icons.refresh_rounded, size: isSmallScreen ? 18 : 20),
+            label: Text(
+              _isRefreshing ? 'Loading...' : 'Get New Quote',
+              style: TextStyle(
+                fontSize: isSmallScreen ? 14 : 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuoteCard(
+    BuildContext context,
+    Quote quote,
+    ColorScheme colorScheme,
+    bool isDarkMode,
+    bool isSmallScreen,
+  ) {
+    final fontSize = ref.watch(themeSettingsProvider.select((s) => s.fontSize));
+
+    return GestureDetector(
+      onTap: () => _showQuoteDetails(context, quote),
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(isSmallScreen ? 20 : 32),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: isDarkMode
+                  ? [Colors.grey[850]!, Colors.grey[900]!]
+                  : [Colors.white, colorScheme.primary.withOpacity(0.05)],
+            ),
+            border: Border.all(
+              color: colorScheme.primary.withOpacity(0.2),
+              width: 2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: colorScheme.primary.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.format_quote_rounded,
+                    size: isSmallScreen ? 24 : 32,
+                    color: colorScheme.primary.withOpacity(0.3),
+                  ),
+                  SizedBox(width: isSmallScreen ? 8 : 12),
+                  Expanded(
+                    child: Text(
+                      quote.text,
+                      style: TextStyle(
+                        fontSize: isSmallScreen
+                            ? fontSize.value + 2
+                            : fontSize.value + 4,
+                        height: 1.6,
+                        fontStyle: FontStyle.italic,
+                        color: isDarkMode ? Colors.grey[200] : Colors.grey[800],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: isSmallScreen ? 16 : 24),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '— ${quote.author}',
+                    style: TextStyle(
+                      fontSize: isSmallScreen
+                          ? fontSize.value
+                          : fontSize.value + 2,
+                      fontWeight: FontWeight.w600,
+                      color: colorScheme.primary,
+                    ),
+                  ),
+                  SizedBox(height: isSmallScreen ? 4 : 8),
+                  Text(
+                    'Updated: ${DateFormat('MMMM d, yyyy - hh:mm a').format(DateTime.now())}',
+                    style: TextStyle(
+                      fontSize: isSmallScreen ? 10 : 12,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingQuoteCard(bool isDarkMode, bool isSmallScreen) {
+    return Card(
+      elevation: 4,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.all(isSmallScreen ? 20 : 32),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(24),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: isDarkMode
+                ? [Colors.grey[850]!, Colors.grey[900]!]
+                : [Colors.white, Colors.grey[50]!],
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: isSmallScreen ? 24 : 32,
+                  height: isSmallScreen ? 24 : 32,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[300],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                SizedBox(width: isSmallScreen ? 8 : 12),
+                Expanded(
+                  child: Column(
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                      SizedBox(height: isSmallScreen ? 8 : 12),
+                      Container(
+                        width: double.infinity * 0.8,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            SizedBox(height: isSmallScreen ? 16 : 24),
+            Container(
+              width: isSmallScreen ? 100 : 120,
+              height: 16,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildStatsCards(
     BuildContext context,
     List<Quote> quotes,
     ColorScheme colorScheme,
     bool isDarkMode,
+    bool isSmallScreen,
   ) {
     final favoriteCount = quotes.where((q) => q.isFavorite).length;
     final categoryCount = quotes
@@ -267,12 +533,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
             context,
             icon: Icons.format_quote_rounded,
             value: quotes.length.toString(),
-            label: 'Total Quotes',
+            label: 'Quotes',
             color: colorScheme.primary,
             isDarkMode: isDarkMode,
+            isSmallScreen: isSmallScreen,
           ),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: isSmallScreen ? 8 : 12),
         Expanded(
           child: _buildStatCard(
             context,
@@ -281,9 +548,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
             label: 'Favorites',
             color: Colors.pink,
             isDarkMode: isDarkMode,
+            isSmallScreen: isSmallScreen,
           ),
         ),
-        const SizedBox(width: 12),
+        SizedBox(width: isSmallScreen ? 8 : 12),
         Expanded(
           child: _buildStatCard(
             context,
@@ -292,6 +560,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
             label: 'Categories',
             color: Colors.deepPurple,
             isDarkMode: isDarkMode,
+            isSmallScreen: isSmallScreen,
           ),
         ),
       ],
@@ -305,12 +574,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
     required String label,
     required Color color,
     required bool isDarkMode,
+    required bool isSmallScreen,
   }) {
     return Card(
-      elevation: 0,
+      elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
           gradient: LinearGradient(
@@ -320,13 +590,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
                 ? [Colors.grey[850]!, Colors.grey[900]!]
                 : [Colors.white, Colors.grey[50]!],
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -334,29 +597,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(8),
+                  padding: EdgeInsets.all(isSmallScreen ? 6 : 8),
                   decoration: BoxDecoration(
                     color: color.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(icon, color: color, size: 18),
+                  child: Icon(
+                    icon,
+                    color: color,
+                    size: isSmallScreen ? 16 : 18,
+                  ),
                 ),
                 const Spacer(),
                 Text(
                   value,
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: isSmallScreen ? 20 : 24,
                     fontWeight: FontWeight.w700,
                     color: color,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: isSmallScreen ? 4 : 8),
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: isSmallScreen ? 10 : 12,
                 color: Colors.grey[600],
                 fontWeight: FontWeight.w500,
               ),
@@ -364,345 +631,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildQuoteCard(
-    BuildContext context,
-    Quote quote,
-    ColorScheme colorScheme,
-    bool isDarkMode,
-  ) {
-    final fontSize = ref.watch(themeSettingsProvider.select((s) => s.fontSize));
-
-    return GestureDetector(
-      onTap: () => _showQuoteDetails(context, quote),
-      child: Card(
-        elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(32),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: isDarkMode
-                  ? [Colors.grey[850]!, Colors.grey[900]!]
-                  : [Colors.white, Colors.grey[50]!],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 20,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Category badge
-              if (quote.category != null && quote.category!.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    '#${quote.category}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                ),
-              if (quote.category != null && quote.category!.isNotEmpty)
-                const SizedBox(height: 20),
-
-              // Quote text
-              Text(
-                '"${quote.text}"',
-                style: TextStyle(
-                  fontSize: fontSize.value + 2,
-                  height: 1.6,
-                  fontStyle: FontStyle.italic,
-                  color: isDarkMode ? Colors.grey[200] : Colors.grey[800],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Author section
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '— ${quote.author}',
-                    style: TextStyle(
-                      fontSize: fontSize.value,
-                      fontWeight: FontWeight.w600,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      quote.isFavorite
-                          ? Icons.favorite_rounded
-                          : Icons.favorite_border_rounded,
-                      color: quote.isFavorite ? Colors.red : Colors.grey[500],
-                    ),
-                    onPressed: () {
-                      ref
-                          .read(quoteListProvider.notifier)
-                          .toggleFavorite(quote.id);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            quote.isFavorite
-                                ? 'Removed from favorites'
-                                : 'Added to favorites',
-                          ),
-                          duration: const Duration(seconds: 1),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState(
-    BuildContext context,
-    ColorScheme colorScheme,
-    bool isDarkMode,
-  ) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(40),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: isDarkMode
-                ? [Colors.grey[850]!, Colors.grey[900]!]
-                : [Colors.white, Colors.grey[50]!],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(Icons.format_quote_rounded, size: 60, color: Colors.grey[400]),
-            const SizedBox(height: 20),
-            Text(
-              'No quotes yet',
-              style: TextStyle(
-                fontSize: 20,
-                color: Colors.grey[600],
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Add your first quote to get started',
-              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 30),
-            FilledButton.icon(
-              onPressed: () => context.push('/add-quote'),
-              style: FilledButton.styleFrom(
-                backgroundColor: colorScheme.primary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              icon: const Icon(Icons.add_rounded),
-              label: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-                child: Text('Add First Quote'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLoadingQuoteCard(bool isDarkMode) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(32),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: isDarkMode
-                ? [Colors.grey[850]!, Colors.grey[900]!]
-                : [Colors.white, Colors.grey[50]!],
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Loading shimmer for category
-            Container(
-              width: 80,
-              height: 24,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Loading shimmer for quote text
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: double.infinity,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity * 0.8,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity * 0.6,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-
-            // Loading shimmer for author
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  width: 120,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: const BoxDecoration(
-                    color: Colors.grey,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionButtons(
-    BuildContext context,
-    WidgetRef ref,
-    ColorScheme colorScheme,
-  ) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        // Refresh Button
-        ElevatedButton.icon(
-          onPressed: _isRefreshing ? null : _loadRandomQuote,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: colorScheme.primary,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          ),
-          icon: _isRefreshing
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white,
-                  ),
-                )
-              : const Icon(Icons.refresh_rounded, size: 20),
-          label: Text(
-            _isRefreshing ? 'Loading...' : 'New Quote',
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-          ),
-        ),
-        const SizedBox(width: 16),
-
-        // All Quotes Button
-        OutlinedButton.icon(
-          onPressed: () => context.push('/quotes'),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: colorScheme.primary,
-            side: BorderSide(color: colorScheme.primary),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          ),
-          icon: const Icon(Icons.collections_bookmark_rounded, size: 20),
-          label: const Text(
-            'All Quotes',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-          ),
-        ),
-      ],
     );
   }
 
@@ -721,16 +649,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with RouteAware {
 class QuoteDetailsBottomSheet extends ConsumerWidget {
   final Quote quote;
 
-  const QuoteDetailsBottomSheet({super.key, required this.quote});
+  const QuoteDetailsBottomSheet({
+    super.key,
+    required this.quote,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final mediaQuery = MediaQuery.of(context);
+    final isSmallScreen = mediaQuery.size.width < 600;
     final colorScheme = Theme.of(context).colorScheme;
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final fontSize = ref.watch(themeSettingsProvider.select((s) => s.fontSize));
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: mediaQuery.viewInsets.bottom + 20,
+      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -745,143 +683,138 @@ class QuoteDetailsBottomSheet extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(height: 20),
-
-          // Category
-          if (quote.category != null && quote.category!.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: colorScheme.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                '#${quote.category}',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: colorScheme.primary,
+          SizedBox(height: isSmallScreen ? 16 : 20),
+          Row(
+            children: [
+              Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isSmallScreen ? 10 : 12,
+                  vertical: isSmallScreen ? 4 : 6,
+                ),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Daily Quote',
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 10 : 12,
+                    fontWeight: FontWeight.w600,
+                    color: colorScheme.primary,
+                  ),
                 ),
               ),
-            ),
-          if (quote.category != null && quote.category!.isNotEmpty)
-            const SizedBox(height: 16),
-
+              const Spacer(),
+              IconButton(
+                icon: Icon(Icons.share_rounded, size: isSmallScreen ? 20 : 24),
+                onPressed: () {
+                  // TODO: Implement share functionality
+                },
+              ),
+            ],
+          ),
+          SizedBox(height: isSmallScreen ? 12 : 16),
           // Quote Text
           Text(
             '"${quote.text}"',
             style: TextStyle(
-              fontSize: fontSize.value + 4,
+              fontSize: isSmallScreen ? fontSize.value + 2 : fontSize.value + 4,
               height: 1.6,
               fontStyle: FontStyle.italic,
               color: isDarkMode ? Colors.grey[200] : Colors.grey[800],
             ),
           ),
-          const SizedBox(height: 24),
-
+          SizedBox(height: isSmallScreen ? 16 : 24),
           // Author
           Text(
             '— ${quote.author}',
             style: TextStyle(
-              fontSize: fontSize.value + 2,
+              fontSize: isSmallScreen ? fontSize.value : fontSize.value + 2,
               fontWeight: FontWeight.w600,
               color: colorScheme.primary,
             ),
           ),
-          const SizedBox(height: 24),
-
+          SizedBox(height: isSmallScreen ? 16 : 24),
           // Additional Info
+          if (quote.category != null && quote.category!.isNotEmpty) ...[
+            _buildDetailRow(
+              icon: Icons.category_rounded,
+              label: 'Category',
+              value: quote.category!,
+              colorScheme: colorScheme,
+              isSmallScreen: isSmallScreen,
+            ),
+            SizedBox(height: isSmallScreen ? 8 : 12),
+          ],
           if (quote.source != null && quote.source!.isNotEmpty) ...[
             _buildDetailRow(
               icon: Icons.source_rounded,
               label: 'Source',
               value: quote.source!,
               colorScheme: colorScheme,
+              isSmallScreen: isSmallScreen,
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: isSmallScreen ? 8 : 12),
           ],
-          if (quote.notes != null && quote.notes!.isNotEmpty) ...[
-            _buildDetailRow(
-              icon: Icons.note_rounded,
-              label: 'Notes',
-              value: quote.notes!,
-              colorScheme: colorScheme,
-            ),
-            const SizedBox(height: 12),
-          ],
-
           // Tags
           if (quote.tags.isNotEmpty) ...[
             Text(
               'Tags',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: isSmallScreen ? 12 : 14,
                 fontWeight: FontWeight.w600,
                 color: Colors.grey[600],
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: isSmallScreen ? 6 : 8),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 6,
+              runSpacing: 6,
               children: quote.tags.map((tag) {
                 return Chip(
-                  label: Text(tag),
+                  label: Text(
+                    tag,
+                    style: TextStyle(fontSize: isSmallScreen ? 11 : 12),
+                  ),
                   backgroundColor: colorScheme.primary.withOpacity(0.1),
                   labelStyle: TextStyle(
                     color: colorScheme.primary,
-                    fontSize: 12,
+                    fontSize: isSmallScreen ? 11 : 12,
                   ),
                 );
               }).toList(),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: isSmallScreen ? 8 : 12),
           ],
-
           // Created Date
           _buildDetailRow(
             icon: Icons.calendar_today_rounded,
             label: 'Added',
-            value: quote.createdAt.toString().split(' ')[0],
+            value: DateFormat('MMMM d, yyyy').format(quote.createdAt),
             colorScheme: colorScheme,
+            isSmallScreen: isSmallScreen,
           ),
-          const SizedBox(height: 24),
-
-          // Action Buttons
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: const Text('Close'),
+          SizedBox(height: isSmallScreen ? 16 : 24),
+          // Close Button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: colorScheme.primary,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding: EdgeInsets.symmetric(
+                  vertical: isSmallScreen ? 14 : 16,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    // TODO: Implement share functionality
-                    Navigator.pop(context);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  icon: const Icon(Icons.share_rounded, size: 20),
-                  label: const Text('Share'),
-                ),
+              child: Text(
+                'Close',
+                style: TextStyle(fontSize: isSmallScreen ? 16 : 18),
               ),
-            ],
+            ),
           ),
         ],
       ),
@@ -893,12 +826,13 @@ class QuoteDetailsBottomSheet extends ConsumerWidget {
     required String label,
     required String value,
     required ColorScheme colorScheme,
+    required bool isSmallScreen,
   }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18, color: colorScheme.primary),
-        const SizedBox(width: 12),
+        Icon(icon, size: isSmallScreen ? 16 : 18, color: colorScheme.primary),
+        SizedBox(width: isSmallScreen ? 8 : 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -906,16 +840,16 @@ class QuoteDetailsBottomSheet extends ConsumerWidget {
               Text(
                 label,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: isSmallScreen ? 10 : 12,
                   color: Colors.grey[600],
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: isSmallScreen ? 2 : 4),
               Text(
                 value,
-                style: const TextStyle(
-                  fontSize: 14,
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 12 : 14,
                   fontWeight: FontWeight.w500,
                 ),
               ),

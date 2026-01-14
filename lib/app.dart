@@ -11,7 +11,7 @@ class MyApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final themeData = ref.watch(appThemeProvider);
     final settings = ref.watch(themeSettingsProvider);
-    
+
     // Load settings from profile on app start
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (settings.syncWithProfile) {
@@ -23,8 +23,9 @@ class MyApp extends ConsumerWidget {
     // final settings = ref.watch(themeSettingsProvider);
     return MaterialApp.router(
       routerConfig: ref.watch(routerProvider),
+      
       debugShowCheckedModeBanner: false,
-
+      // navigatorObservers: [routeObserver], // ✅ REQUIRED
       // theme: ThemeData(useMaterial3: true),
       title: 'QuoteVault',
       theme: themeData.copyWith(brightness: Brightness.light),
