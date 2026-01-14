@@ -176,6 +176,13 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
                             tooltip: 'Filter by Category',
                           ),
                           IconButton(
+                            icon: const Icon(Icons.favorite_border),
+                            onPressed: () => context.push('/favorites'),
+                            tooltip: 'Favorites',
+                          ),
+                          const SizedBox(width: 8),
+
+                          IconButton(
                             icon: const Icon(Icons.settings_outlined),
                             onPressed: () => context.push('/settings'),
                             tooltip: 'Settings',
@@ -421,7 +428,7 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
           child: AnimatedScale(
             scale: 1,
             duration: Duration(milliseconds: 200 + (index * 50)),
-            child: _QuoteCard(quote: quote),
+            child: QuoteCard(quote: quote),
           ),
         );
       }, childCount: quotes.length),
@@ -560,16 +567,27 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
   }
 }
 
-class _QuoteCard extends ConsumerWidget {
+class QuoteCard extends ConsumerWidget {
   final Quote quote;
 
-  const _QuoteCard({required this.quote});
+  const QuoteCard({required this.quote});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final colorScheme = Theme.of(context).colorScheme;
     final fontSize = ref.watch(themeSettingsProvider.select((s) => s.fontSize));
+
+    // Watch if this quote is favorite
+    final isFavorite = ref.watch(
+      quoteListProvider.select((quotes) {
+        final q = quotes.firstWhere(
+          (q) => q.id == quote.id,
+          orElse: () => Quote.empty(),
+        );
+        return q.isFavorite;
+      }),
+    );
 
     return Card(
       elevation: 0,
@@ -661,14 +679,35 @@ class _QuoteCard extends ConsumerWidget {
                     // Action buttons
                     Row(
                       children: [
+                        // Favorite button
                         IconButton(
                           icon: Icon(
-                            Icons.favorite_border_rounded,
-                            color: Colors.grey[500],
+                            isFavorite
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            color: isFavorite ? Colors.red : Colors.grey[500],
                             size: 20,
                           ),
-                          onPressed: () {},
+                          onPressed: () {
+                            ref
+                                .read(quoteListProvider.notifier)
+                                .toggleFavorite(quote.id);
+
+                            // Show snackbar feedback
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  isFavorite
+                                      ? 'Removed from favorites'
+                                      : 'Added to favorites',
+                                ),
+                                duration: const Duration(seconds: 1),
+                              ),
+                            );
+                          },
                         ),
+
+                        // Share button
                         IconButton(
                           icon: Icon(
                             Icons.share_rounded,
@@ -912,7 +951,7 @@ class _ShareOptionsBottomSheet extends ConsumerWidget {
 
       if (imageBytes != null) {
         final saved = await shareService.saveQuoteCardLocally(
-          imageBytes: imageBytes, 
+          imageBytes: imageBytes,
         );
         Navigator.pop(context); // Remove loading dialog
 
