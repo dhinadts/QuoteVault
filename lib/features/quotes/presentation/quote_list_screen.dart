@@ -501,7 +501,7 @@ class _QuoteListScreenState extends ConsumerState<QuoteListScreen> {
             20,
             10,
             20,
-            index == quotes.length - 1 ? 100 : 10,
+            index == quotes.length - 1 ? 70 : 10,
           ),
           child: AnimatedScale(
             scale: 1,
@@ -673,7 +673,7 @@ class QuoteCard extends ConsumerWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: () => _showShareOptions(context, ref),
+        // onTap: () => _showShareOptions(context, ref),
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),

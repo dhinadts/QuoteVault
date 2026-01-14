@@ -1,5 +1,7 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:quotevault/features/auth/presentation/home_screen.dart';
 import 'package:quotevault/features/auth/presentation/settings.dart';
 import 'package:quotevault/features/auth/presentation/signup_screen.dart';
 import 'package:quotevault/features/quotes/presentation/favorite_screen.dart';
@@ -11,6 +13,8 @@ final routerProvider = Provider((ref) {
   final supabase = ref.read(supabaseProvider);
 
   return GoRouter(
+    observers: [routeObserver],
+
     redirect: (context, state) {
       final user = supabase.auth.currentUser;
       final location = state.matchedLocation;
@@ -34,7 +38,11 @@ final routerProvider = Provider((ref) {
     },
  */
     routes: [
-      GoRoute(path: '/', builder: (_, __) => const QuoteListScreen()),
+      GoRoute(path: '/', builder: (context, state) => const HomeScreen()),
+      GoRoute(
+        path: '/quotes',
+        builder: (context, state) => const QuoteListScreen(),
+      ),
       GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
       GoRoute(path: '/signup', builder: (_, __) => const SignUpScreen()),
       GoRoute(path: '/settings', builder: (_, __) => const SettingsScreen()),
@@ -42,3 +50,5 @@ final routerProvider = Provider((ref) {
     ],
   );
 });
+
+final RouteObserver<PageRoute> routeObserver = RouteObserver<PageRoute>();
