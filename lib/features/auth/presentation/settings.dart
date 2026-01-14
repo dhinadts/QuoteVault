@@ -553,16 +553,46 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return Scaffold(
       backgroundColor: isDarkMode ? Colors.grey[900] : Colors.grey[50],
       body: profileAsync.when(
-        loading: () => const Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text('Loading profile...', style: TextStyle(color: Colors.grey)),
-            ],
-          ),
+        loading: () => CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              floating: true,
+              pinned: true,
+              expandedHeight: 180.0,
+              backgroundColor: colorScheme.primary,
+              foregroundColor: Colors.white,
+              flexibleSpace: const FlexibleSpaceBar(
+                centerTitle: true,
+                title: Text(
+                  'Settings',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: const [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text(
+                      'Loading profile...',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
+
         error: (error, stack) => Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
